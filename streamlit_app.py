@@ -1,8 +1,10 @@
 import datetime as dt
+from io import BytesIO
 import pandas as pd
 import streamlit as st
-from fpdf import FPDF  # fpdf2
-from pathlib import Path
+
+# WeasyPrint for HTML -> PDF
+from weasyprint import HTML
 
 st.set_page_config(page_title="Taxi Expense Justification - Montsmed HK", page_icon="🚕", layout="centered")
 
@@ -15,6 +17,7 @@ def validate_money(amount: float) -> bool:
     return amount is not None and amount >= 0
 
 def to_printable_html(row: dict) -> str:
+    # Minimal printable summary as HTML; use this same HTML for the PDF
     styles = """
     <style>
       .print-card {font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; color: #222;}
@@ -31,7 +34,10 @@ def to_printable_html(row: dict) -> str:
     receipt_type = row.get("receipt_type", "N/A")
     distance = row.get("distance_km", "")
     distance_str = f"{distance} km" if distance != "" else "N/A"
+
+    # Precompute any content that would otherwise require backslashes in f-string expressions
     desc_raw = row.get("work_description", "") or ""
+    # Use pre-wrap in CSS, but also allow explicit breaks if present
     desc_html = desc_raw.replace("\n", "<br>")
 
     html = f"""
@@ -95,151 +101,17 @@ def to_printable_html(row: dict) -> str:
     """
     return html
 
+def html_to_pdf_bytes(html: str) -> bytes:
+    # Render HTML to PDF bytes in-memory using WeasyPrint
+    # Using default base_url=None; for external assets, provide base_url.
+    pdf_bytes = HTML(string=html).write_pdf()
+    return pdf_bytes
+
 def record_to_csv_bytes(records: list) -> bytes:
     if not records:
         return b""
     df = pd.DataFrame(records)
     return df.to_csv(index=False).encode("utf-8")
-
-def pdf_from_record(record: dict) -> bytes:
-    pdf = FPDF(format="A4")
-    # Pick a font family name as a plain string
-    font_family = "Helvetica"
-
-    # Optional: if a Unicode TTF is present, register & switch to it
-    ttf_path = Path("NotoSans-Regular.ttf")
-    if ttf_path.exists():
-        pdf.add_font("NotoSans", "", str(ttf_path), uni=True)
-        font_family = "NotoSans"
-
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-
-    # Compute a safe text width and set margins
-    left_margin = 15
-    right_margin = 15
-    pdf.set_left_margin(left_margin)
-    pdf.set_right_margin(right_margin)
-    content_w = max(40, pdf.w - left_margin - right_margin)
-
-    def section(title: str):
-        pdf.set_font(font_family, "B", 14)
-        pdf.multi_cell(content_w, 8, title)
-        pdf.set_font(font_family, "", 11)
-
-    def kv(label: str, value):
-        text = str(value) if value != "" else "N/A"
-        pdf.set_font(font_family, "B", 11)
-        pdf.multi_cell(content_w, 6, f"{label}:")
-        pdf.set_font(font_family, "", 11)
-        pdf.multi_cell(content_w, 6, text)
-
-    # Title
-    pdf.set_font(font_family, "B", 16)
-    pdf.multi_cell(content_w, 10, "Taxi Expense Justification Form")
-    pdf.set_font(font_family, "", 11)
-    pdf.multi_cell(content_w, 6, "Montsmed HK")
-    pdf.ln(2)
-
-    # Sections
-    section("Employee information")
-    kv("Employee Name", record.get("employee_name", ""))
-    kv("Department", "Service Engineering")
-    kv("Position", "Service Engineer")
-    kv("Date of Submission", record.get("submission_date", ""))
-
-    pdf.ln(1)
-    section("Trip details")
-    kv("Date of Travel", record.get("date_of_travel", ""))
-    kv("Time of Travel", record.get("time_of_travel", ""))
-    kv("From", record.get("from_location", ""))
-    kv("To", record.get("to_location", ""))
-    kv("Taxi Fare Amount", f"HK$ {record.get('fare_amount', '')}")
-    kv("Receipt Number", record.get("receipt_number", ""))
-
-    pdf.ln(1)
-    section("Justification")
-    reasons = ", ".join(record.get("primary_reasons", [])) or "N/A"
-    kv("Primary Reasons", reasons)
-    kv("Other (details)", record.get("reason_other", "") or "N/A")
-
-    pdf.ln(1)
-    section("Work details")
-    kv("Client/Customer", record.get("client", ""))
-    kv("Type of Service", record.get("service_type", ""))
-    kv("Equipment (if any)", record.get("equipment", "") or "N/A")
-    pdf.set_font(font_family, "B", 11)
-    pdf.multi_cell(content_w, 6, "Brief Description:")
-    pdf.set_font(font_family, "", 11)
-    desc = record.get("work_description", "") or "N/A"
-    pdf.multi_cell(content_w, 6, desc)
-
-    pdf.ln(1)
-    section("Receipt info")
-    kv("Receipt Attached", record.get("receipt_type", ""))
-    kv("Taxi License Plate", record.get("license_plate", ""))
-    kv("Start Time", record.get("start_time", ""))
-    kv("End Time", record.get("end_time", ""))
-    dist = record.get("distance_km", "")
-    kv("Distance", f"{dist} km" if dist != "" else "N/A")
-
-    return pdf.output(dest="S").encode("latin-1")
-
-    def section(title):
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, title, ln=True)
-        pdf.set_font("Helvetica", "", 11)
-
-    def kv(label, value):
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(60, 6, f"{label}:", align="L")
-        pdf.set_font("Helvetica", "", 11)
-        pdf.multi_cell(0, 6, str(value) if value != "" else "N/A")
-
-    section("Employee information")
-    kv("Employee Name", record.get("employee_name", ""))
-    kv("Department", "Service Engineering")
-    kv("Position", "Service Engineer")
-    kv("Date of Submission", record.get("submission_date", ""))
-
-    pdf.ln(2)
-    section("Trip details")
-    kv("Date of Travel", record.get("date_of_travel", ""))
-    kv("Time of Travel", record.get("time_of_travel", ""))
-    kv("From", record.get("from_location", ""))
-    kv("To", record.get("to_location", ""))
-    kv("Taxi Fare Amount", f"HK$ {record.get('fare_amount','')}")
-    kv("Receipt Number", record.get("receipt_number", ""))
-
-    pdf.ln(2)
-    section("Justification")
-    reasons = ", ".join(record.get("primary_reasons", [])) or "N/A"
-    kv("Primary Reasons", reasons)
-    kv("Other (details)", record.get("reason_other", "") or "N/A")
-
-    pdf.ln(2)
-    section("Work details")
-    kv("Client/Customer", record.get("client", ""))
-    kv("Type of Service", record.get("service_type", ""))
-    kv("Equipment (if any)", record.get("equipment", "") or "N/A")
-    # Description
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(60, 6, "Brief Description:", ln=True)
-    pdf.set_font("Helvetica", "", 11)
-    desc = record.get("work_description", "") or "N/A"
-    pdf.multi_cell(0, 6, desc)
-
-    pdf.ln(2)
-    section("Receipt info")
-    kv("Receipt Attached", record.get("receipt_type", ""))
-    kv("Taxi License Plate", record.get("license_plate", ""))
-    kv("Start Time", record.get("start_time", ""))
-    kv("End Time", record.get("end_time", ""))
-    dist = record.get("distance_km", "")
-    kv("Distance", f"{dist} km" if dist != "" else "N/A")
-
-    # Return as bytes
-    return pdf.output(dest="S").encode("latin-1")
 
 # ---- UI ----
 init_state()
@@ -296,15 +168,27 @@ with st.form("taxi_form", clear_on_submit=False):
     c5, c6 = st.columns(2)
     with c5:
         client = st.text_input("Client/Customer")
-        equipment = st.text_area("Equipment Being Transported (if applicable)", height=80, placeholder="List equipment and quantities if relevant")
+        equipment = st.text_area(
+            "Equipment Being Transported (if applicable)",
+            height=80,
+            placeholder="List equipment and quantities if relevant",
+        )
     with c6:
-        service_type = st.selectbox("Type of Service", ["Installation", "Maintenance", "Repair", "Follow-up", "Other"], index=1)
+        service_type = st.selectbox(
+            "Type of Service",
+            ["Installation", "Maintenance", "Repair", "Follow-up", "Other"],
+            index=1,
+        )
         work_description = st.text_area("Brief Description of Work/Purpose", height=120)
 
     st.subheader("Receipt attachment")
     receipt_type = st.radio(
         "Receipt provided",
-        options=["Original taxi receipt attached", "Electronic receipt attached", "Hand-written receipt (if machine-printed not available)"],
+        options=[
+            "Original taxi receipt attached",
+            "Electronic receipt attached",
+            "Hand-written receipt (if machine-printed not available)",
+        ],
         index=1,
     )
     receipt_file = st.file_uploader(
@@ -380,6 +264,7 @@ if submitted:
             preview_html = to_printable_html(record)
             st.markdown(preview_html, unsafe_allow_html=True)
 
+            # Offer download of receipt if uploaded
             if receipt_file:
                 st.write("Attached receipt:")
                 st.download_button(
@@ -389,9 +274,9 @@ if submitted:
                     mime=receipt_file.type or "application/octet-stream",
                 )
 
-            # Download PDF via fpdf2 (no system deps)
+            # Download PDF summary
             try:
-                pdf_bytes = pdf_from_record(record)
+                pdf_bytes = html_to_pdf_bytes(preview_html)
                 st.download_button(
                     "Download PDF summary",
                     data=pdf_bytes,
