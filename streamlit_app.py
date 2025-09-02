@@ -101,17 +101,91 @@ def record_to_csv_bytes(records: list) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
 
 def pdf_from_record(record: dict) -> bytes:
-    # Generate a clean textual PDF summary using fpdf2
-    pdf = FPDF()
+    pdf = FPDF(format="A4")  # 210 x 297 mm
+    # Try to load a Unicode TTF font if available (add a .ttf to the repo root, e.g., NotoSans-Regular.ttf)
+    ttf_path = Path("NotoSans-Regular.ttf")
+    if ttf_path.exists():
+        pdf.add_font("NotoSans", fname=str(ttf_path), uni=True)
+        base_font = ("NotoSans", "")
+    else:
+        # Fallback to core Helvetica (ASCII only)
+        base_font = ("Helvetica", "")
+
+    # Page and layout
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
+    # Compute safe text width
+    page_w = pdf.w  # total width
+    left_margin = 15
+    right_margin = 15
+    pdf.set_left_margin(left_margin)
+    pdf.set_right_margin(right_margin)
+    content_w = max(40, page_w - left_margin - right_margin)  # ensure at least some width
+
+    # Helpers
+    def section(title: str):
+        pdf.set_font(base_font, "B", 14)
+        pdf.cell(0, 8, title, ln=True)
+        pdf.set_font(base_font, "", 11)
+
+    def kv(label: str, value):
+        text = str(value) if value != "" else "N/A"
+        pdf.set_font(base_font, "B", 11)
+        pdf.cell(0, 6, f"{label}:", ln=True)
+        pdf.set_font(base_font, "", 11)
+        pdf.multi_cell(content_w, 6, text)  # explicit width
+
     # Title
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, "Taxi Expense Justification Form", ln=True)
-    pdf.set_font("Helvetica", "", 11)
-    pdf.cell(0, 6, "Montsmed HK", ln=True)
-    pdf.ln(3)
+    pdf.set_font(base_font, "B", 16)
+    pdf.multi_cell(content_w, 10, "Taxi Expense Justification Form")
+    pdf.set_font(base_font, "", 11)
+    pdf.multi_cell(content_w, 6, "Montsmed HK")
+    pdf.ln(2)
+
+    # Sections
+    section("Employee information")
+    kv("Employee Name", record.get("employee_name", ""))
+    kv("Department", "Service Engineering")
+    kv("Position", "Service Engineer")
+    kv("Date of Submission", record.get("submission_date", ""))
+
+    pdf.ln(1)
+    section("Trip details")
+    kv("Date of Travel", record.get("date_of_travel", ""))
+    kv("Time of Travel", record.get("time_of_travel", ""))
+    kv("From", record.get("from_location", ""))
+    kv("To", record.get("to_location", ""))
+    kv("Taxi Fare Amount", f"HK$ {record.get('fare_amount', '')}")
+    kv("Receipt Number", record.get("receipt_number", ""))
+
+    pdf.ln(1)
+    section("Justification")
+    reasons = ", ".join(record.get("primary_reasons", [])) or "N/A"
+    kv("Primary Reasons", reasons)
+    kv("Other (details)", record.get("reason_other", "") or "N/A")
+
+    pdf.ln(1)
+    section("Work details")
+    kv("Client/Customer", record.get("client", ""))
+    kv("Type of Service", record.get("service_type", ""))
+    kv("Equipment (if any)", record.get("equipment", "") or "N/A")
+    pdf.set_font(base_font, "B", 11)
+    pdf.cell(0, 6, "Brief Description:", ln=True)
+    pdf.set_font(base_font, "", 11)
+    desc = record.get("work_description", "") or "N/A"
+    pdf.multi_cell(content_w, 6, desc)
+
+    pdf.ln(1)
+    section("Receipt info")
+    kv("Receipt Attached", record.get("receipt_type", ""))
+    kv("Taxi License Plate", record.get("license_plate", ""))
+    kv("Start Time", record.get("start_time", ""))
+    kv("End Time", record.get("end_time", ""))
+    dist = record.get("distance_km", "")
+    kv("Distance", f"{dist} km" if dist != "" else "N/A")
+
+    return pdf.output(dest="S").encode("latin-1")
 
     def section(title):
         pdf.set_font("Helvetica", "B", 13)
