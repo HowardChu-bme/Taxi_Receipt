@@ -102,45 +102,42 @@ def record_to_csv_bytes(records: list) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
 
 def pdf_from_record(record: dict) -> bytes:
-    pdf = FPDF(format="A4")  # 210 x 297 mm
-    # Try to load a Unicode TTF font if available (add a .ttf to the repo root, e.g., NotoSans-Regular.ttf)
+    pdf = FPDF(format="A4")
+    # Pick a font family name as a plain string
+    font_family = "Helvetica"
+
+    # Optional: if a Unicode TTF is present, register & switch to it
     ttf_path = Path("NotoSans-Regular.ttf")
     if ttf_path.exists():
-        pdf.add_font("NotoSans", fname=str(ttf_path), uni=True)
-        base_font = ("NotoSans", "")
-    else:
-        # Fallback to core Helvetica (ASCII only)
-        base_font = ("Helvetica", "")
+        pdf.add_font("NotoSans", "", str(ttf_path), uni=True)
+        font_family = "NotoSans"
 
-    # Page and layout
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    # Compute safe text width
-    page_w = pdf.w  # total width
+    # Compute a safe text width and set margins
     left_margin = 15
     right_margin = 15
     pdf.set_left_margin(left_margin)
     pdf.set_right_margin(right_margin)
-    content_w = max(40, page_w - left_margin - right_margin)  # ensure at least some width
+    content_w = max(40, pdf.w - left_margin - right_margin)
 
-    # Helpers
     def section(title: str):
-        pdf.set_font(base_font, "B", 14)
-        pdf.cell(0, 8, title, ln=True)
-        pdf.set_font(base_font, "", 11)
+        pdf.set_font(font_family, "B", 14)
+        pdf.multi_cell(content_w, 8, title)
+        pdf.set_font(font_family, "", 11)
 
     def kv(label: str, value):
         text = str(value) if value != "" else "N/A"
-        pdf.set_font(base_font, "B", 11)
-        pdf.cell(0, 6, f"{label}:", ln=True)
-        pdf.set_font(base_font, "", 11)
-        pdf.multi_cell(content_w, 6, text)  # explicit width
+        pdf.set_font(font_family, "B", 11)
+        pdf.multi_cell(content_w, 6, f"{label}:")
+        pdf.set_font(font_family, "", 11)
+        pdf.multi_cell(content_w, 6, text)
 
     # Title
-    pdf.set_font(base_font, "B", 16)
+    pdf.set_font(font_family, "B", 16)
     pdf.multi_cell(content_w, 10, "Taxi Expense Justification Form")
-    pdf.set_font(base_font, "", 11)
+    pdf.set_font(font_family, "", 11)
     pdf.multi_cell(content_w, 6, "Montsmed HK")
     pdf.ln(2)
 
@@ -171,9 +168,9 @@ def pdf_from_record(record: dict) -> bytes:
     kv("Client/Customer", record.get("client", ""))
     kv("Type of Service", record.get("service_type", ""))
     kv("Equipment (if any)", record.get("equipment", "") or "N/A")
-    pdf.set_font(base_font, "B", 11)
-    pdf.cell(0, 6, "Brief Description:", ln=True)
-    pdf.set_font(base_font, "", 11)
+    pdf.set_font(font_family, "B", 11)
+    pdf.multi_cell(content_w, 6, "Brief Description:")
+    pdf.set_font(font_family, "", 11)
     desc = record.get("work_description", "") or "N/A"
     pdf.multi_cell(content_w, 6, desc)
 
